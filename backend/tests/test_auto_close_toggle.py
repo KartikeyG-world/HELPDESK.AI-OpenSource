@@ -46,6 +46,44 @@ class _AutoCloseTestBase(unittest.TestCase):
         self.patcher.stop()
 
 
+class TestMissingCredentials(unittest.TestCase):
+    """Scheduled sweeps should skip cleanly when repository secrets are unavailable."""
+
+    def test_missing_supabase_credentials_skip_without_client_initialization(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "",
+                "SUPABASE_SERVICE_ROLE_KEY": "",
+                "SUPABASE_SERVICE_KEY": ""
+            },
+        ):
+            with patch("backend.services.auto_close_service.create_client") as mock_create:
+                service = AutoCloseService()
+                result = service.run()
+
+        mock_create.assert_not_called()
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "missing_supabase_credentials")
+
+    def test_service_key_fallback_initializes_client(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "",
+                "SUPABASE_SERVICE_KEY": "fallback-service-key"
+            },
+        ):
+            with patch("backend.services.auto_close_service.create_client") as mock_create:
+                AutoCloseService()
+
+        mock_create.assert_called_once_with(
+            "https://example.supabase.co",
+            "fallback-service-key"
+        )
+
+
 class TestAutoCloseToggle(_AutoCloseTestBase):
     """Issue #913: Auto-close toggle should read from DB, not hardcode defaults."""
 

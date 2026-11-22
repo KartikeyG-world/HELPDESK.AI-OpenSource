@@ -37,10 +37,16 @@ class AutoCloseService:
 
     def __init__(self):
         """Initialize the auto-close service with Supabase client."""
-        self.supabase = create_client(
-            os.getenv("SUPABASE_URL", "http://localhost"),
-            os.getenv("SUPABASE_SERVICE_ROLE_KEY", "dummy")
-        )
+        supabase_url = (os.getenv("SUPABASE_URL") or "").strip()
+        supabase_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or ""
+        ).strip()
+
+        self.supabase = None
+        if supabase_url and supabase_key:
+            self.supabase = create_client(supabase_url, supabase_key)
         self.enabled = os.getenv("AUTO_CLOSE_ENABLED", "true").lower() == "true"
         self.default_auto_close_days = int(os.getenv("AUTO_CLOSE_DAYS", "7"))
         self.cron_schedule = os.getenv("AUTO_CLOSE_CRON_SCHEDULE", "0 2 * * *")  # 2 AM UTC daily
@@ -112,11 +118,7 @@ class AutoCloseService:
 
     # Maintain backward compatibility with tests
     def get_system_settings(self, company_id: str) -> Dict:
-        res = self.get_company_settings(company_id)
-        if res.get("_is_fallback"):
-            res = res.copy()
-            res["auto_close_enabled"] = True
-        return res
+        return self.get_company_settings(company_id)
         
     def is_enabled_for_company(self, company_id: str) -> bool:
         return self.is_auto_close_enabled(company_id)
@@ -144,6 +146,15 @@ class AutoCloseService:
         """
         Execute the auto-close job with distributed locking.
         """
+        if self.supabase is None:
+            logger.warning(
+                "Auto-close sweep skipped: SUPABASE_URL and a service-role/service key are required."
+            )
+            return {
+                "status": "skipped",
+                "reason": "missing_supabase_credentials"
+            }
+
         if not getattr(self, "enabled", True):
             logger.info("Auto-close service is disabled.")
             return {"status": "disabled"}
